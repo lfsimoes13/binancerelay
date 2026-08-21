@@ -1,6 +1,6 @@
 # fly.toml app configuration file for binance-relay
 
-app = 'binance-relay'
+app = 'binancerelay-lfsimoes13'
 primary_region = 'gru'
 
 [build]
