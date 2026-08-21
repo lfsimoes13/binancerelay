@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Instala apenas as dependências de produção
 COPY package*.json ./
-RUN npm ci --omit=dev
+RUN npm install --omit=dev
 
 # Copia o código do relay
 COPY . .
