@@ -23,7 +23,14 @@ const PORT = Number(process.env.PORT || 8080);
 if (!FIXIE_URL) throw new Error("FIXIE_URL não configurada");
 if (!RELAY_SECRET) throw new Error("RELAY_SECRET não configurado");
 
-const agent = new ProxyAgent(FIXIE_URL);
+const parsedProxy = new URL(FIXIE_URL);
+const proxyOrigin = `${parsedProxy.protocol}//${parsedProxy.host}`;
+const authHeader = `Basic ${Buffer.from(`${parsedProxy.username}:${parsedProxy.password}`).toString("base64")}`;
+
+const agent = new ProxyAgent({
+  uri: proxyOrigin,
+  token: authHeader,
+});
 
 const ALLOWED_HOSTS = new Set([
   "api.binance.com",
@@ -55,6 +62,22 @@ const server = http.createServer(async (req, res) => {
   };
 
   if (req.method === "GET" && req.url === "/health") return send(200, { ok: true });
+
+  if (req.method === "GET" && req.url === "/ip") {
+    try {
+      const upstream = await undiciRequest("https://api.ipify.org?format=json", {
+        method: "GET",
+        dispatcher: agent,
+        bodyTimeout: 10_000,
+        headersTimeout: 10_000,
+      });
+      const data = await upstream.body.json();
+      return send(200, data);
+    } catch (error) {
+      return send(502, { msg: `falha ao obter IP: ${error.message}` });
+    }
+  }
+
   if (req.method !== "POST") return send(405, { msg: "método não permitido" });
   if (req.headers["x-relay-secret"] !== RELAY_SECRET) {
     return send(401, { msg: "não autorizado" });
