@@ -19,18 +19,22 @@ import { ProxyAgent, request as undiciRequest } from "undici";
 const FIXIE_URL = process.env.FIXIE_URL;
 const RELAY_SECRET = process.env.RELAY_SECRET;
 const PORT = Number(process.env.PORT || 8080);
+const DIRECT_ONLY = process.env.DIRECT_ONLY === "1";
 
-if (!FIXIE_URL) throw new Error("FIXIE_URL não configurada");
 if (!RELAY_SECRET) throw new Error("RELAY_SECRET não configurado");
+if (!DIRECT_ONLY && !FIXIE_URL) throw new Error("FIXIE_URL não configurada");
 
-const parsedProxy = new URL(FIXIE_URL);
-const proxyOrigin = `${parsedProxy.protocol}//${parsedProxy.host}`;
-const authHeader = `Basic ${Buffer.from(`${parsedProxy.username}:${parsedProxy.password}`).toString("base64")}`;
+let agent;
+if (!DIRECT_ONLY) {
+  const parsedProxy = new URL(FIXIE_URL);
+  const proxyOrigin = `${parsedProxy.protocol}//${parsedProxy.host}`;
+  const authHeader = `Basic ${Buffer.from(`${parsedProxy.username}:${parsedProxy.password}`).toString("base64")}`;
 
-const agent = new ProxyAgent({
-  uri: proxyOrigin,
-  token: authHeader,
-});
+  agent = new ProxyAgent({
+    uri: proxyOrigin,
+    token: authHeader,
+  });
+}
 
 const ALLOWED_HOSTS = new Set([
   "api.binance.com",
@@ -65,12 +69,13 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "GET" && req.url === "/ip") {
     try {
-      const upstream = await undiciRequest("https://api.ipify.org?format=json", {
+      const requestOptions = {
         method: "GET",
-        dispatcher: agent,
         bodyTimeout: 10_000,
         headersTimeout: 10_000,
-      });
+      };
+      if (agent) requestOptions.dispatcher = agent;
+      const upstream = await undiciRequest("https://api.ipify.org?format=json", requestOptions);
       const data = await upstream.body.json();
       return send(200, data);
     } catch (error) {
@@ -106,13 +111,14 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
-    const upstream = await undiciRequest(target, {
+    const requestOptions = {
       method: payload.method === "POST" ? "POST" : "GET",
       headers,
-      dispatcher: agent,
       bodyTimeout: 15_000,
       headersTimeout: 15_000,
-    });
+    };
+    if (agent) requestOptions.dispatcher = agent;
+    const upstream = await undiciRequest(target, requestOptions);
     const text = await upstream.body.text();
     res.writeHead(upstream.statusCode, { "content-type": "application/json" });
     res.end(text || "{}");
